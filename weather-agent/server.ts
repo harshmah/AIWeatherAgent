@@ -1,72 +1,90 @@
 import express from "express";
-import { JsonRpcError, WeatherAgentRequest, WeatherResult } from "../shared/schema";
+import {
+  DefaultA2ARequestHandler,
+  SendMessageRequest,
+  SendMessageResponse,
+  CancelTaskRequest,
+  CancelTaskResponse,
+  Task
+} from "a2a-js";
+import { WeatherResult } from "../shared/schema";
+import { WEATHER_AGENT_CARD, serveAgentCard } from "./agentCard";
+import { WeatherHandler, WeatherAgentExecutor } from "./handler";
 
 const app = express();
 app.use(express.json());
 
 const PORT = 3000;
 
-// JSON-RPC error builder
-function buildError(id: number | string, code: number, message: string): JsonRpcError {
-  return { jsonrpc: "2.0", error: { code, message }, id };
-}
+// Serve AgentCard at /.well-known/agent.json (discovery endpoint)
+app.get("/.well-known/agent.json", serveAgentCard);
 
-// Route: POST /rpc
-app.post("/rpc", (req, res) => {
-  const request = req.body as WeatherAgentRequest;
+// Create the weather handler (business logic)
+const weatherHandler = new WeatherHandler();
 
-  // Validate JSON-RPC envelope
-  if (!request.jsonrpc || request.jsonrpc !== "2.0" || !request.method) {
-    return res.json(buildError(request?.id ?? 0, -32600, "Invalid Request"));
-  }
+// Create A2A request handler implementing the weather skill
+const a2aRequestHandler = new DefaultA2ARequestHandler(
+  new WeatherAgentExecutor(weatherHandler)
+);
 
-  // Route to handler
-  if (request.method === "getWeather") {
-    return handleGetWeather(request, res);
-  }
-
-  // Unknown method
-  return res.json(buildError(request.id, -32601, `Method not found: ${request.method}`));
+// Route: POST /messages (A2A sendTask endpoint)
+app.post("/messages", (req, res) => {
+  const request = req.body as SendMessageRequest;
+  return a2aRequestHandler
+    .onMessageSend(request)
+    .then((response: SendMessageResponse) => {
+      res.json(response);
+    })
+    .catch((err: Error) => {
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: { code: -32603, message: err.message },
+        id: request?.id ?? 0
+      });
+    });
 });
 
-// Handle getWeather method
-function handleGetWeather(request: WeatherAgentRequest, res: import("express").Response) {
-  const params = request.params as { city?: string };
+// Route: POST /cancel (A2A cancelTask endpoint)
+app.post("/cancel", (req, res) => {
+  const request = req.body as CancelTaskRequest;
+  return a2aRequestHandler
+    .onCancelTask(request)
+    .then((response: CancelTaskResponse) => res.json(response))
+    .catch(() => {
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: { code: -32603, message: "Cancel not supported" },
+        id: request?.id ?? 0
+      });
+    });
+});
 
-  if (!params.city || typeof params.city !== "string") {
-    return res.json(buildError(request.id, -32602, "Invalid params: 'city' is required"));
+// Legacy: Keep POST /rpc for backward compatibility (deprecated)
+app.post("/rpc", (req, res) => {
+  const request = req.body as { jsonrpc?: string; method?: string; params?: unknown; id?: number | string };
+  const cityParam = (request.params as { city?: string })?.city;
+
+  if (!cityParam || typeof cityParam !== "string") {
+    return res.json({
+      jsonrpc: "2.0",
+      error: { code: -32602, message: "Invalid params: 'city' is required" },
+      id: request.id ?? 0
+    });
   }
 
-  const result = generateDummyWeather(params.city);
+  const result = weatherHandler.generateDummyWeather(cityParam);
   return res.json({
     jsonrpc: "2.0",
     result,
-    id: request.id,
+    id: request.id ?? 0
   });
-}
-
-// Generate dummy weather data
-function generateDummyWeather(city: string): WeatherResult {
-  const conditions = ["Sunny", "Cloudy", "Rainy", "Partly Cloudy", "Windy"];
-  const condition = conditions[Math.floor(Math.random() * conditions.length)];
-  const temp = Math.floor(Math.random() * 30) + 5;
-
-  return {
-    city,
-    temperature: temp,
-    feelsLike: temp - 2,
-    humidity: Math.floor(Math.random() * 60) + 30,
-    wind: { speed: Math.floor(Math.random() * 30) + 5, direction: "NW" },
-    forecast: [
-      { day: "Monday", high: temp + 2, low: temp - 6, condition },
-      { day: "Tuesday", high: temp, low: temp - 4, condition: conditions[Math.floor(Math.random() * conditions.length)] },
-      { day: "Wednesday", high: temp - 2, low: temp - 8, condition: conditions[Math.floor(Math.random() * conditions.length)] },
-    ],
-  };
-}
+});
 
 // Start server
 app.listen(PORT, () => {
   console.log(`Weather Agent running on http://localhost:${PORT}`);
-  console.log(`Endpoint: POST /rpc`);
+  console.log(`  AgentCard: GET  /.well-known/agent.json`);
+  console.log(`  SendTask:  POST /messages`);
+  console.log(`  Cancel:    POST /cancel`);
+  console.log(`  Legacy:    POST /rpc (backward compat)`);
 });
