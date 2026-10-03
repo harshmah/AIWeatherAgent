@@ -21,12 +21,12 @@ describe("Weather Agent - /.well-known/agent.json", () => {
 
 // Test A2A sendTask endpoint
 async function callSendTask(city: string) {
-  const res = await fetch(`${WEATHER_URL}/messages`, {
+  const res = await fetch(`${WEATHER_URL}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      method: "sendTask",
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "tasks/send",
       params: {
         id: "test-1",
         message: { parts: [{ type: "text", text: city }] }
@@ -49,8 +49,6 @@ async function callLegacyRpc(params: Record<string, unknown>, method = "getWeath
 describe("Weather Agent - /messages (A2A)", () => {
   it("should return weather data for a valid city via sendTask", async () => {
     const result = await callSendTask("Paris");
-    assert.ok(result);
-    assert.ok(result.result);
     assert.strictEqual(result.jsonrpc, "2.0");
     const parts = result.result.parts as { type: string; text: string }[];
     const weatherText = parts.find(p => p.type === "text")?.text;
@@ -61,12 +59,12 @@ describe("Weather Agent - /messages (A2A)", () => {
   });
 
   it("should return error for missing city", async () => {
-    const res = await fetch(`${WEATHER_URL}/messages`, {
+    const res = await fetch(`${WEATHER_URL}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0",
-        method: "sendTask",
+        method: "tasks/send",
         params: { id: "test-2", message: { parts: [{ type: "text", text: "" }] } }
       }),
     });
