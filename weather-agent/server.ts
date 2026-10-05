@@ -31,7 +31,7 @@ app.listen(PORT, () => {
 });
 
 // Legacy: Keep POST /rpc for backward compatibility (deprecated)
-app.post("/rpc", (req, res) => {
+app.post("/rpc", async (req, res) => {
   const request = req.body as { jsonrpc?: string; method?: string; params?: unknown; id?: number | string };
   const cityParam = (request.params as { city?: string })?.city;
 
@@ -43,10 +43,19 @@ app.post("/rpc", (req, res) => {
     });
   }
 
-  const result = weatherHandler.generateDummyWeather(cityParam);
-  return res.json({
-    jsonrpc: "2.0",
-    result,
-    id: request.id ?? 0
-  });
+  try {
+    const result = await weatherHandler.generateWeather(cityParam);
+    return res.json({
+      jsonrpc: "2.0",
+      result,
+      id: request.id ?? 0
+    });
+  } catch (err) {
+    const dummyResult = weatherHandler.generateDummyWeather(cityParam);
+    return res.json({
+      jsonrpc: "2.0",
+      result: dummyResult,
+      id: request.id ?? 0
+    });
+  }
 });

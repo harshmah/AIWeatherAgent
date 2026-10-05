@@ -43,6 +43,8 @@ export interface ForecastDay {
   condition: string;
 }
 
+export type WeatherSource = "real" | "dummy";
+
 export interface WeatherResult {
   city: string;
   temperature: number;
@@ -50,6 +52,7 @@ export interface WeatherResult {
   humidity: number;
   wind: WindData;
   forecast: ForecastDay[];
+  source: WeatherSource;
 }
 
 // Method-specific types
